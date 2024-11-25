@@ -3,9 +3,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
 import time
-
+from analysis import analyze_image_correlations, plot_correlation_heatmap, plot_image_histogram, plot_entropy
+from permutation import  show_images
 # 设置字体，保证打印图片标题时不会为空方框
-font = font_manager.FontProperties(fname='C:/Windows/Fonts/msyh.ttc')  # 选择一个可用的字体路径，Windows 用户可以使用 'MSYH.TTC' 或其他中文字体
+font = font_manager.FontProperties(fname='C:/Windows/Fonts/msyh.ttc')  # 替换为合适的字体路径
+plt.rcParams['font.family'] = font.get_name()
+
 
 # 噪声测试，添加高斯噪声
 def add_noise(image_test, noise_factor=100):
@@ -14,18 +17,18 @@ def add_noise(image_test, noise_factor=100):
     noisy_image = np.clip(noisy_image, 0, 255)
     return noisy_image.astype(np.uint8)
 
+
 # 加密函数
 def encrypt(image):
     """对图像进行加密，使用行列置换"""
     M, N = image.shape
     # 获取Lorenz系统的轨迹
     s = np.zeros(M + N)
-    # Lorenz系统初始状态
     x0, y0, z0, w0 = 1.1, 2.2, 3.3, 4.4
     a, b, c = 10, 8 / 3, 28
-    h = 0.002  # 步长
-    t = 800  # 初始时间，用于忽略系统的初始过渡过程
-    r=-20
+    h = 0.002
+    t = 800
+    r = -20
     for i in range(1, M + N + t):
         K11 = a * (y0 - x0) + w0
         K12 = a * (y0 - (x0 + K11 * h / 2)) + w0
@@ -51,24 +54,20 @@ def encrypt(image):
         K44 = -y1 * z1 + r * (w0 + K43 * h)
         w1 = w0 + (K41 + K42 + K43 + K44) * h / 6
 
-        # 更新状态变量
         x0, y0, z0, w0 = x1, y1, z1, w1
 
-        # 从第t+1步开始，记录Lorenz系统轨迹
         if i > t:
-            s[i - t - 1] = x1  # 存储x1值（Lorenz轨迹的一部分）
+            s[i - t - 1] = x1
 
     X = (np.floor((s[:M] + 100) * 10 ** 10) % M).astype(int) + 1
     Y = (np.floor((s[M:M + N] + 100) * 10 ** 10) % N).astype(int) + 1
 
-    # 行置换
     A = image.copy()
     for i in range(M):
         t = A[i, :].copy()
         A[i, :] = A[X[i] - 1, :]
         A[X[i] - 1, :] = t
 
-    # 列置换
     B = A.copy()
     for j in range(N):
         t = B[:, j].copy()
@@ -77,102 +76,104 @@ def encrypt(image):
 
     return B, X, Y
 
+
 # 解密函数
 def decode(N, M, X, Y, encrypted_image):
-    for j in range(N - 1, -1, -1):  # 从后往前恢复列
+    for j in range(N - 1, -1, -1):
         t = encrypted_image[:, j].copy()
         encrypted_image[:, j] = encrypted_image[:, Y[j] - 1]
         encrypted_image[:, Y[j] - 1] = t
     decrypted_image = encrypted_image.copy()
-    for i in range(M - 1, -1, -1):  # 从后往前恢复行
+    for i in range(M - 1, -1, -1):
         t = decrypted_image[i, :].copy()
         decrypted_image[i, :] = decrypted_image[X[i] - 1, :]
         decrypted_image[X[i] - 1, :] = t
     return decrypted_image
 
+
 # 加载彩色图像
-img = cv2.imread('data/test.jpg')  # 确保图像路径正确
+img = cv2.imread('data/test.jpg')
 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-# 对RGB图像的每个通道进行加密
-def encrypt_rgb(image):
-    # 分离RGB通道
-    R, G, B = cv2.split(image)
 
-    # 对每个通道执行加密
+def encrypt_rgb(image):
+    R, G, B = cv2.split(image)
     R_encrypted, X_r, Y_r = encrypt(R)
     G_encrypted, X_g, Y_g = encrypt(G)
     B_encrypted, X_b, Y_b = encrypt(B)
-
-    # 合并加密后的通道
     encrypted_image = cv2.merge([R_encrypted, G_encrypted, B_encrypted])
     return encrypted_image, X_r, Y_r, X_g, Y_g, X_b, Y_b
 
-# 对RGB图像的每个通道进行解密
-def decrypt_rgb(encrypted_image, X_r, Y_r, X_g, Y_g, X_b, Y_b):
-    # 分离RGB通道
-    R, G, B = cv2.split(encrypted_image)
 
-    # 对每个通道执行解密
+def decrypt_rgb(encrypted_image, X_r, Y_r, X_g, Y_g, X_b, Y_b):
+    R, G, B = cv2.split(encrypted_image)
     R_decrypted = decode(R.shape[1], R.shape[0], X_r, Y_r, R)
     G_decrypted = decode(G.shape[1], G.shape[0], X_g, Y_g, G)
     B_decrypted = decode(B.shape[1], B.shape[0], X_b, Y_b, B)
-
-    # 合并解密后的通道
     decrypted_image = cv2.merge([R_decrypted, G_decrypted, B_decrypted])
     return decrypted_image
 
-# 对加噪声图像进行处理
-def add_noise_rgb(image, noise_factor=100):
-    # 分离RGB通道
-    R, G, B = cv2.split(image)
 
-    # 对每个通道添加噪声
-    R_noisy = add_noise(R, noise_factor)
-    G_noisy = add_noise(G, noise_factor)
-    B_noisy = add_noise(B, noise_factor)
+def process_image(img_path, noise_factors):
+    """处理图像：加密、添加噪声、解密并保存图像"""
 
-    # 合并噪声图像
-    noisy_image = cv2.merge([R_noisy, G_noisy, B_noisy])
-    return noisy_image
+    # 读取图像
+    img = cv2.imread(img_path)
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-# 主函数
-def main():
-    # 加密图像
-    encrypted_image, X_r, Y_r, X_g, Y_g, X_b, Y_b = encrypt_rgb(img)
+    # 加密
+    start_time = time.perf_counter()
+    encrypted_image, X_r, Y_r, X_g, Y_g, X_b, Y_b = encrypt_rgb(img_rgb)
+    end_time = time.perf_counter()
+    print(f"加密所需时间: {end_time - start_time:.6f}秒")
+    cv2.imwrite("data/permutation/encrypt_and_decrypt/encrypted_image.jpg", encrypted_image)
 
-    # 添加噪声
-    noisy_image = add_noise_rgb(encrypted_image, noise_factor=100)
 
     # 解密
-    decrypted_image = decrypt_rgb(noisy_image, X_r, Y_r, X_g, Y_g, X_b, Y_b)
+    start_time = time.perf_counter()
+    decrypted_image = decrypt_rgb(encrypted_image, X_r, Y_r, X_g, Y_g, X_b, Y_b)
+    end_time = time.perf_counter()
+    print(f"解密所需时间: {end_time - start_time:.6f}秒")  # 保留 6 位小数
+    cv2.imwrite("data/permutation/encrypt_and_decrypt/decrypted_image.jpg", decrypted_image)
+    # 添加噪声并解密
+    noisy_images = []
+    noisy_truths = []
+    for nf in noise_factors:
+        noisy_image = add_noise(encrypted_image, nf)
+        noisy_images.append(noisy_image)
+        noisy_truth = decrypt_rgb(noisy_image, X_r, Y_r, X_g, Y_g, X_b, Y_b)
+        noisy_truths.append(noisy_truth)
 
-    # 显示结果
-    plt.figure(figsize=(15, 5))
-    plt.subplot(1, 4, 1)
-    plt.imshow(img)
-    plt.title("Original Image", fontproperties=font)
-    plt.axis('off')
+    # 保存噪声加密图像和解密后的图像
+    for i, (noisy, truth) in enumerate(zip(noisy_images, noisy_truths), start=1):
+        noisy_filename = f"data/permutation/noise/noisy_image_{i}.jpg"
+        truth_filename = f"data/permutation/noise/noisy_truth_{i}.jpg"
+        cv2.imwrite(noisy_filename, noisy)
+        cv2.imwrite(truth_filename, cv2.cvtColor(truth, cv2.COLOR_RGB2BGR))
 
-    plt.subplot(1, 4, 2)
-    plt.imshow(encrypted_image)
-    plt.title("Encrypted Image", fontproperties=font)
-    plt.axis('off')
+    show_images(
+        [img_rgb, encrypted_image, decrypted_image],
+        ["原始图像", "加密图像", "解密图像"],
+        font,
+        save_dir="data/permutation/comparison",  # 保存图像的文件夹路径
+        file_name="decrypt_and_encrypt_comparison.jpg",
+        main_title="原始图像，加密图像，解密图像对比图"
+    )
+    titles = [f"noise_factor={nf}" for nf in noise_factors]
+    show_images(noisy_truths, titles, font, save_dir="data/permutation/comparison",
+                file_name="noise_comparison.jpg", main_title="不同程度噪音下解密图像对比图")  # 保存噪声图像
 
-    plt.subplot(1, 4, 3)
-    plt.imshow(noisy_image)
-    plt.title("Noisy Image", fontproperties=font)
-    plt.axis('off')
 
-    plt.subplot(1, 4, 4)
-    plt.imshow(decrypted_image)
-    plt.title("Decrypted Image", fontproperties=font)
-    plt.axis('off')
 
-    plt.show()
+    # 计算并展示图像的相关性和直方图等
+    correlations_before = analyze_image_correlations(img_rgb, "加密前图像")
+    correlations_after = analyze_image_correlations(encrypted_image, "加密后图像")
+    plot_correlation_heatmap(correlations_before, correlations_after, "图像相关性分析")
+    plot_image_histogram(img_rgb, encrypted_image)
+    plot_entropy(img_rgb, encrypted_image, decrypted_image)
 
-# 运行主函数
+
+# 调用主函数处理图像
 if __name__ == "__main__":
-    start_time = time.time()
-    main()
-    print(f"Processing time: {time.time() - start_time:.2f} seconds")
+    process_image('data/test.jpg', noise_factors=[10, 50, 100, 500, 1000])  # 可以自定义噪声因子
+
