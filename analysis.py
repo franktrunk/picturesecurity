@@ -1,238 +1,249 @@
-import cv2
-import numpy as np
 import matplotlib.pyplot as plt
-import  random
+import numpy as np
+from scipy.stats import pearsonr
+import cv2
 import  math
 
 
-'''密钥敏感性分析'''
-'''
-计算像素数变化率
-'''
-def NPCR(img1,img2):
-  #opencv颜色通道顺序为BGR
-  img1=cv2.imread(img1)
-  img2=cv2.imread(img2)
-  w,h,_=img1.shape
+'''加入噪声'''
+def add_noise(image, noise_factor=100):
+    """向图像添加高斯噪声"""
+    noise_matrix = noise_factor * np.random.randn(*image.shape)  # 生成噪声矩阵
+    noise_matrix_normalized = (noise_matrix - np.min(noise_matrix)) / (np.max(noise_matrix) - np.min(noise_matrix))
 
-  #图像通道拆分
-  B1,G1,R1=cv2.split(img1)
-  B2,G2,R2=cv2.split(img2)
-  #返回数组的排序后的唯一元素和每个元素重复的次数
-  ar,num=np.unique((R1!=R2),return_counts=True)
-  R_npcr=(num[0] if ar[0]==True else num[1])/(w*h)
-  ar,num=np.unique((G1!=G2),return_counts=True)
-  G_npcr=(num[0] if ar[0]==True else num[1])/(w*h)
-  ar,num=np.unique((B1!=B2),return_counts=True)
-  B_npcr=(num[0] if ar[0]==True else num[1])/(w*h)
+    # 显示噪声矩阵
+    plt.imshow(noise_matrix_normalized, cmap='gray')  # 使用灰度色图显示归一化后的噪声矩阵
+    plt.title("Noise Matrix")
+    plt.colorbar()  # 添加颜色条
 
-  return R_npcr,G_npcr,B_npcr
-
-'''
-两张图像之间的平均变化强度
-'''
-
-def UACI(img1,img2):
-  img1=cv2.imread(img1)
-  img2=cv2.imread(img2)
-  w,h,_=img1.shape
-  #图像通道拆分
-  B1,G1,R1=cv2.split(img1)
-  B2,G2,R2=cv2.split(img2)
-  #元素为uint8类型取值范围：0到255
-  # print(R1.dtype)
-
-  #强制转换元素类型，为了运算
-  R1=R1.astype(np.int16)
-  R2=R2.astype(np.int16)
-  G1=G1.astype(np.int16)
-  G2=G2.astype(np.int16)
-  B1=B1.astype(np.int16)
-  B2=B2.astype(np.int16)
-
-  sumR=np.sum(abs(R1-R2))
-  sumG=np.sum(abs(G1-G2))
-  sumB=np.sum(abs(B1-B2))
-  R_uaci=sumR/255/(w*h)
-  G_uaci=sumG/255/(w*h)
-  B_uaci=sumB/255/(w*h)
-
-  return R_uaci,G_uaci,B_uaci
-
-
-'''def main():
-  #img='./lena.png'
-  img1='./lena_encrypt1.png'
-  img2='./lena_encrypt2.png'
-
-  R_npcr,G_npcr,B_npcr=NPCR(img1,img2)
-  print('*********PSNR*********')
-  #百分数表示，保留小数点后4位
-  print('Red  :{:.4%}'.format(R_npcr))
-  print('Green:{:.4%}'.format(G_npcr))
-  print('Blue :{:.4%}'.format(B_npcr))
-
-
-  R_uaci,G_uaci,B_uaci=UACI(img1,img2)
-  print('*********UACI*********')
-  #百分数表示，保留小数点后4位
-  print('Red  :{:.4%}'.format(R_uaci))
-  print('Green:{:.4%}'.format(G_uaci))
-  print('Blue :{:.4%}'.format(B_uaci))
-
-
-if __name__== '__main__':
-  main()
-'''
+    # 保存噪声矩阵图像
+    noise_image_path = f"data/permutation/noise/noise_matrix.jpg"
+    plt.savefig(noise_image_path, bbox_inches='tight', pad_inches=0.1)  # 保存噪声矩阵
+    plt.close()  # 关闭当前图像，避免显示多个图像
+    noisy_image = image + noise_matrix
+    noisy_image = np.clip(noisy_image, 0, 255)
+    return noisy_image.astype(np.uint8)
 
 
 
-
-'''
-绘制灰度直方图
-'''
+'''图像相关性分析'''
 
 
-def hist(img):
-  img = cv2.imread(img)
-  B, G, R = cv2.split(img)
-  # 转成一维
-  R = R.flatten(order='C')
-  G = G.flatten(order='C')
-  B = B.flatten(order='C')
+def calculate_pixel_correlation(image, direction="horizontal"):
+  """
+  计算图像相邻像素的相关性系数。
 
-  # 结果展示
-  plt.rcParams['font.sans-serif'] = ['SimHei']  # 中文乱码
-  plt.subplot(232)
-  # plt.imshow(img[:,:,(2,1,0)])
-  plt.hist(img.flatten(order='C'), bins=range(257), color='gray')
-  plt.title('原图像')
-  # 子图2，通道R
-  plt.subplot(234)
-  # imshow()对图像进行处理，画出图像，show()进行图像显示
-  plt.hist(R, bins=range(257), color='red')
-  plt.title('通道R')
-  # plt.show()
-  # 不显示坐标轴
-  # plt.axis('off')
-
-  # 子图3，通道G
-  plt.subplot(235)
-  plt.hist(G, bins=range(257), color='green')
-  plt.title('通道G')
-  # plt.show()
-  # plt.axis('off')
-
-  # 子图4，通道B
-  plt.subplot(236)
-  plt.hist(B, bins=range(257), color='blue')
-  plt.title('通道B')
-  # plt.axis('off')
-  # #设置子图默认的间距
-  plt.tight_layout()
-  plt.show()
-
-'''
-def main():
-  img = './lena.png'
-  # 图像lean的灰度直方图
-  hist(img)
+  :param image: 输入图像（灰度图像），二维 numpy 数组。
+  :param direction: 方向，'horizontal', 'vertical', 'positive_diagonal', 'negative_diagonal'。
+  :return: 相邻像素的相关性系数。
+  """
 
 
-if __name__ == '__main__':
-  main()
-'''
+  if direction == "horizontal":
+    # 水平方向：获取每行的相邻像素对
+    x = image[:, :-1].flatten()  # 去掉最后一列
+    y = image[:, 1:].flatten()  # 去掉第一列
 
+  elif direction == "vertical":
+    # 垂直方向：获取每列的相邻像素对
+    x = image[:-1, :].flatten()  # 去掉最后一行
+    y = image[1:, :].flatten()  # 去掉第一行
 
+  elif direction == "positive_diagonal":
+    # 正对角方向：获取从左上到右下的相邻像素对
+    x = image[:-1, :-1].flatten()  # 去掉最后一行和最后一列
+    y = image[1:, 1:].flatten()  # 去掉第一行和第一列
 
-'''鲁棒性，噪音攻击'''
+  elif direction == "negative_diagonal":
+    # 反对角方向：获取从右上到左下的相邻像素对
+    x = image[:-1, 1:].flatten()  # 去掉最后一行和第一列
+    y = image[1:, :-1].flatten()  # 去掉第一行和最后一列
 
-
-def gauss_noise(image, mean=0, var=0.001):
-  '''
-      添加高斯噪声
-      mean : 均值
-      var : 方差
-  '''
-  image = np.array(image / 255, dtype=float)
-  noise = np.random.normal(mean, var ** 0.5, image.shape)
-  out = image + noise
-  if out.min() < 0:
-    low_clip = -1.
   else:
-    low_clip = 0.
-  out = np.clip(out, low_clip, 1.0)
-  out = np.uint8(out * 255)
-  return out
+    raise ValueError(
+      "Invalid direction. Choose from 'horizontal', 'vertical', 'positive_diagonal', or 'negative_diagonal'.")
+
+  # 计算皮尔逊相关系数
+  correlation, _ = pearsonr(x, y)
+  return correlation
 
 
-# 默认10%的椒盐噪声
-def salt_and_pepper_noise(noise_img, proportion=0.1):
-  height, width, _ = noise_img.shape
-  num = int(height * width * proportion)  # 多少个像素点添加椒盐噪声
-  for i in range(num):
-    w = random.randint(0, width - 1)
-    h = random.randint(0, height - 1)
-    if random.randint(0, 1) == 0:
-      noise_img[h, w] = 0
-    else:
-      noise_img[h, w] = 255
-  return noise_img
+def analyze_image_correlations(image, title="图像"):
+  """
+  分析图像在不同方向的相关性。
 
-'''
-def main():
-  img = './lena.png'
-  img1 = './lena_encrypt1.png'
-  img2 = './lena_encrypt2.png'
-  im = cv2.imread(img1)
-  gauss_img = gauss_noise(im, mean=0, var=0.0005)
-  salt_img = salt_and_pepper_noise(im, proportion=0.05)
-  cv2.imwrite('./gauss_img.png', gauss_img)
-  cv2.imwrite('./salt_img.png', salt_img)
+  :param image: 输入图像（灰度图像），二维 numpy 数组。
+  :param title: 图像的标题（用于标识）。
+
+  :return: 包含相关性的字典。
+  """
+  if image is None or image.size == 0:
+    raise ValueError("输入的图像无效或为空。")
+
+  correlations = {
+    "horizontal": calculate_pixel_correlation(image, "horizontal"),
+    "vertical": calculate_pixel_correlation(image, "vertical"),
+    "positive_diagonal": calculate_pixel_correlation(image, "positive_diagonal"),
+    "negative_diagonal": calculate_pixel_correlation(image, "negative_diagonal"),
+  }
+
+  print(f"{title}的相关性: {correlations}")
+  return correlations
 
 
-if __name__ == '__main__':
-  main()
-'''
+def plot_correlation_heatmap(correlations_before, correlations_after, title="相关性分析"):
+    """
+    绘制两个图像相关性对比热图，并在热图中标明相关性数值。
 
-'''
-计算图像的信息熵
-'''
+    :param correlations_before: 加密前图像的相关性字典。
+    :param correlations_after: 加密后图像的相关性字典。
+    :param title: 热图的标题。
+    """
+    directions = ["horizontal", "vertical", "positive_diagonal", "negative_diagonal"]
+
+    values_before = [correlations_before[direction] for direction in directions]
+    values_after = [correlations_after[direction] for direction in directions]
+
+    # 创建图形和子图
+    fig, ax = plt.subplots(1, 2, figsize=(14, 6), constrained_layout=True, gridspec_kw={'width_ratios': [1, 1]})
+    fig.suptitle(title, fontsize=16)
+
+    # 设置颜色范围，确保两个热图的颜色范围一致
+    vmin = min(min(values_before), min(values_after))
+    vmax = max(max(values_before), max(values_after))
+
+    # 绘制加密前图像相关性热图
+    im1 = ax[0].imshow([values_before], cmap="coolwarm", aspect="auto", vmin=vmin, vmax=vmax)
+    ax[0].set_xticks(np.arange(len(directions)))
+    ax[0].set_xticklabels(directions, rotation=45, ha='right')
+    ax[0].set_yticks([])
+    ax[0].set_title("加密前图像", fontsize=14)
+    for i, value in enumerate(values_before):
+        ax[0].text(i, 0, f"{value:.2f}", ha='center', va='center', color='black')
+
+    # 绘制加密后图像相关性热图
+    im2 = ax[1].imshow([values_after], cmap="coolwarm", aspect="auto", vmin=vmin, vmax=vmax)
+    ax[1].set_xticks(np.arange(len(directions)))
+    ax[1].set_xticklabels(directions, rotation=45, ha='right')
+    ax[1].set_yticks([])
+    ax[1].set_title("加密后图像", fontsize=14)
+    for i, value in enumerate(values_after):
+        ax[1].text(i, 0, f"{value:.2f}", ha='center', va='center', color='black')
+
+    # 添加共享颜色条
+    cbar = fig.colorbar(im1, ax=ax, orientation='vertical', fraction=0.02, pad=0.04)
+    cbar.set_label("相关性值", fontsize=12)
+
+    # 显示图形
+    plt.show()
 
 
 
-def entropy(img):
-  img = cv2.imread(img)
-  w, h, _ = img.shape
-  B, G, R = cv2.split(img)
-  gray, num1 = np.unique(R, return_counts=True)
-  gray, num2 = np.unique(G, return_counts=True)
-  gray, num3 = np.unique(B, return_counts=True)
-  R_entropy = 0
-  G_entropy = 0
-  B_entropy = 0
 
-  for i in range(len(gray)):
-    p1 = num1[i] / (w * h)
-    p2 = num2[i] / (w * h)
-    p3 = num3[i] / (w * h)
-    R_entropy -= p1 * (math.log(p1, 2))
-    G_entropy -= p2 * (math.log(p2, 2))
-    B_entropy -= p3 * (math.log(p3, 2))
-  return R_entropy, G_entropy, B_entropy
+def plot_image_histogram(image, encrypted_image=None):
+    """
+    生成并显示图像的直方图对比（原图和加密后的图像）。
+
+    参数:
+        image (np.array): 原图像数据。
+        encrypted_image (np.array 或 None): 加密后的图像数据。如果没有传入，只有原图会显示。
+    """
+    plt.figure(figsize=(12, 6))  # 创建一个更大的图形窗口
+    numbins=50
+    # 将彩色图像转换为灰度图像
+    if len(image.shape) == 3:  # 如果是彩色图像，转换为灰度图像
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 判断并绘制原图直方图
+    plt.subplot(1, 2, 1)  # 在1x2的网格中的第1个位置
+    plt.hist(image.ravel(), bins=numbins, range=(0, 256), color='blue', alpha=0.7, linewidth=2)
+    plt.title("Original Image Histogram")
+    plt.xlabel("Pixel Value")
+    plt.ylabel("Frequency")
+    plt.grid()
+
+    # 如果有加密图像，先转换为灰度图像，再绘制直方图
+    if encrypted_image is not None:
+        if len(encrypted_image.shape) == 3:  # 如果是彩色图像，转换为灰度图像
+            encrypted_image = cv2.cvtColor(encrypted_image, cv2.COLOR_BGR2GRAY)
+
+        plt.subplot(1, 2, 2)  # 在1x2的网格中的第2个位置
+        plt.hist(encrypted_image.ravel(), bins=numbins, range=(0, 256), color='blue', alpha=0.7, linewidth=2)
+        plt.title("Encrypted Image Histogram")
+        plt.xlabel("Pixel Value")
+        plt.ylabel("Frequency")
+        plt.grid()
+
+    plt.tight_layout()
+    plt.show()
 
 
-def main():
-  img = './lena.png'
-  img1 = './lena_encrypt1.png'
-  img2 = './lena_encrypt2.png'
-  # 图像lena的熵
-  R_entropy, G_entropy, B_entropy = entropy(img)
-  print('***********信息熵*********')
-  print('通道R:{:.4}'.format(R_entropy))
-  print('通道G:{:.4}'.format(G_entropy))
-  print('通道B:{:.4}'.format(B_entropy))
+def calculate_entropy(image):
+    """
+    计算图像的熵值。
 
+    参数:
+        image (ndarray): 图像数据，应该是已经通过cv2打开的图像。
 
-if __name__ == '__main__':
-  main()
+    返回:
+        float: 图像的熵值。
+    """
+    # 确保图像是灰度图像
+    if len(image.shape) == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # 计算图像的直方图
+    hist = cv2.calcHist([image], [0], None, [256], [0, 256])
+
+    # 归一化直方图（将频率转换为概率）
+    hist /= hist.sum()
+
+    # 计算熵值
+    entropy = 0
+    for p in hist:
+        if p > 0:
+            entropy -= p * math.log2(p)
+
+    return float(entropy)  # 确保返回的是标量
+
+def plot_entropy(original, encrypted, decrypted):
+    """
+    绘制加密前、加密后和解密后三张图像的对比图，并显示熵值。
+
+    参数:
+        original (ndarray): 加密前的图像。
+        encrypted (ndarray): 加密后的图像。
+        decrypted (ndarray): 解密后的图像。
+    """
+    # 确保图像是灰度图（如果是彩色图像）
+    if len(original.shape) == 3:
+        original = cv2.cvtColor(original, cv2.COLOR_BGR2GRAY)
+    if len(encrypted.shape) == 3:
+        encrypted = cv2.cvtColor(encrypted, cv2.COLOR_BGR2GRAY)
+    if len(decrypted.shape) == 3:
+        decrypted = cv2.cvtColor(decrypted, cv2.COLOR_BGR2GRAY)
+
+    # 计算熵值
+    entropy_original = calculate_entropy(original)
+    entropy_encrypted = calculate_entropy(encrypted)
+    entropy_decrypted = calculate_entropy(decrypted)
+
+    # 准备图像和标题
+    images = [original, encrypted, decrypted]
+    entropies = [entropy_original, entropy_encrypted, entropy_decrypted]
+    titles = ['加密前图像', '加密后图像', '解密后图像']
+
+    # 绘制图像
+    plt.figure(figsize=(15, 5))
+
+    for i, (img, entropy, title) in enumerate(zip(images, entropies, titles)):
+        plt.subplot(1, 3, i + 1)
+        plt.imshow(img, cmap='gray')
+        plt.title(f'{title}\n熵值: {entropy:.2f}', pad=40)  # 增加标题的间距
+        plt.axis('off')
+
+    # 调整布局，避免标题过于靠上
+    plt.subplots_adjust(top=0.8)  # 这个调整可微调，减小图像上方的空白
+
+    plt.tight_layout()
+    plt.show()
